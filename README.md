@@ -2,70 +2,53 @@
 
 **Zen-Stealth** is an industrial-grade browser automation suite designed to bypass sophisticated anti-bot systems like Cloudflare Turnstile. It leverages a containerized Chrome environment running on a full Wayland/Sway display server, combined with advanced CDP (Chrome DevTools Protocol) stealth patches and human-like behavioral simulation.
 
-## 🚀 Key Features
+---
 
-- **Dockerized Display Environment:** Runs within a Sway/Wayland container to avoid "Headless" detection flags.
-- **CDP Stealth Patches:** Low-level overrides for hardware and browser identity.
-- **Human-in-the-Loop Bypass:** Manual VNC solving with automated cookie persistence for subsequent runs.
-- **Cookie & Session Warmth:** Automatic import/export of session tokens (`cf_clearance`).
-- **Humanization Engine:** Natural mouse movement, typing cadence, and randomized delays.
+## 🏗️ System Architecture: How it Works
+
+The project works by creating a "Synthetic Human" environment. Instead of a simple headless script, it creates a full Linux desktop session inside a container, making the browser indistinguishable from a real user on a workstation.
+
+### 1. The Environment Layer (`Dockerfile` & `docker-compose.yml`)
+- **Compositor:** Uses **Sway** (Wayland) and **Xwayland** to provide a real graphical display server. This is critical because modern anti-bots check if the browser has a valid rendering context.
+- **VNC Access:** Emits a VNC stream at port 5910 via `wayvnc`, allowing "Human-in-the-Loop" interaction for solving initial challenges.
+- **Persistence:** Volume mounts `cookies.json` and `.env` from the host to ensure that once a session is "warmed," it stays warm even after container restarts.
+
+### 2. The Orchestration Layer (`ghost_browser.py`)
+This is the "Brain" of the project. It handles:
+- **CDP Lifecycle:** Configures `zendriver` to connect to Chrome with specific flags (`no-sandbox`, custom binary paths).
+- **Session Injection:** Reads the host-side `cookies.json` and injects them via the `Network.setCookie` CDP command *before* navigation starts.
+- **Reactive Saving:** Runs an asynchronous loop that polls for new cookies every 15 seconds. If you solve a challenge via VNC, it detects the new `cf_clearance` token and saves it to the host immediately.
+
+### 3. The Stealth Layer (`stealth_utils.py`)
+This file handles the "Digital Makeup" of the browser:
+- **Identity Syncing:** It fetches geo-data from your proxy IP and calls `Emulation.set_timezone_override`, `Emulation.set_locale_override`, and `Emulation.set_geolocation_override`. This ensures your browser's internal clock and location match your public IP.
+- **Hardware Spoofing:** Injects JS to override `navigator.mediaDevices.enumerateDevices`. This prevents anti-bots from seeing "Virtual Audio" or missing device labels common in server environments.
+
+### 4. The Behavioral Layer (`humanizer.py`)
+To bypass high-entropy behavioral analysis, this module synthesizes human-like movement:
+- **Bezier Mouse Control:** Uses `numpy` and `scipy` to calculate cubic Bézier curves for mouse paths, adding randomized control point offsets to mimic hand jitters.
+- **Typing Cadence:** Implements a semi-stochastic delay between keystrokes (variable ms) to prevent "instant" form submission detection.
+
+### 5. The Fail-Safe Layer (`visual_controller.py`)
+When standard DOM selection fails (e.g., inside complex Shadow DOM or Canvas-based buttons), this module uses **Computer Vision**:
+- **OpenCV Matching:** It can take a target image (like a button) and click it based on visual coordinate matching, bypassing the need for CSS selectors or XPaths.
 
 ---
 
-## 🛡️ Stealth Patches & Humanization
-
-This project implements multiple layers of protection to ensure the browser appears as a genuine human user:
-
-### 1. Identity & Geolocation Syncing
-Automatically fetches the node's public IP metadata and overrides browser properties to match the proxy's location:
-- **Timezone Override:** Sets the browser timezone to match the IP locale.
-- **Locale/Language Spoofing:** Matches `navigator.languages` to the expected geo-region.
-- **Geolocation Mocking:** Overrides latitude/longitude to match the IP provider.
-
-### 2. Hardware Fingerprint Spoofing
-Injects scripts at document start to mock sensitive hardware APIs:
-- **Media Device Enumeration:** Spoofs `navigator.mediaDevices.enumerateDevices` to return standard hardware labels (e.g., "Realtek High Definition Audio"), preventing detection via unique device IDs.
-
-### 3. Humanizer Engine
-Uses mathematical models to simulate human browsing:
-- **Bézier Mouse Paths:** Mouse movements follow cubic Bézier curves instead of robotic straight lines.
-- **Variable Typing Cadence:** Implements per-character delays with randomized jitter to mimic human typing speed.
-- **Randomized Hesitation:** Adds variable pauses between actions to simulate "thinking time."
-
-### 4. Non-Headless Execution
-By running inside a virtual Wayland compositor (Sway), we use a standard non-headless Chrome binary. This eliminates common detection vectors like `window.navigator.webdriver` and headless-specific GPU rendering differences.
-
----
-
-## 🍪 Cloudflare Turnstile Bypass via Cookies
-
-The project uses a **Session Persistence Strategy** to overcome Cloudflare's challenges:
-
-1. **Initial Solving:** On the first run, the user connects via VNC and solves the Turnstile challenge manually.
-2. **State Capture:** The `save_cookies` loop monitors the session every 15 seconds. Once the `cf_clearance` cookie (Cloudflare's bypass token) is detected, it is immediately saved to `cookies.json`.
-3. **Automated Injection:** On subsequent runs, these cookies are injected *before* navigation. The server recognizes the session as "warm" and returning, authenticated by the valid `cf_clearance` token, bypassing the challenge entirely.
-
----
-
-## 📊 Project Flow
+## 🍪 The Cloudflare Bypass Flow
 
 ```mermaid
 graph TD
-    A[Start Application] --> B[Load .env & Config]
-    B --> C[Launch Docker Container]
-    C --> D[Initialize Sway/Wayland & Xwayland]
-    D --> E[Launch Chrome via zendriver]
-    E --> F[Inject Saved Cookies from cookies.json]
-    F --> G[Navigation to Target URL]
-    G --> H[Apply CDP Stealth Patches]
-    H --> I{Challenge Present?}
-    I -- Yes --> J[Manual Solve via VNC]
-    I -- No --> K[Continue Automation]
-    J --> L[Capture cf_clearance Cookie]
-    L --> M[Save State to cookies.json]
-    M --> K
-    K --> N[Humanized Interactions]
-    N --> O[Periodic State Sync]
+    A[Start App] --> B[Import cookies.json]
+    B --> C[Launch Chrome in Sway Container]
+    C --> D[Sync Geo/Timezone with Proxy IP]
+    D --> E[Navigate to Target]
+    E --> F{Session Valid?}
+    F -- No --> G[VNC: Solve Challenge Manually]
+    G --> H[Loop detects cf_clearance cookie]
+    H --> I[Save to cookies.json]
+    I --> J[Proceed to Automation]
+    F -- Yes --> J
 ```
 
 ---
@@ -73,37 +56,29 @@ graph TD
 ## 🛠️ How to Run
 
 ### Prerequisites
-- Docker & Docker Compose installed.
-- TigerVNC or any VNC client (for initial manual solve).
+- Docker & Docker Compose.
+- A VNC Client (e.g., TigerVNC).
 
-### Step 1: Configuration
-Create a `.env` file from the example:
-```bash
-cp .env.example .env
-# Edit .env with your SOCKS5_PROXY if needed
-```
-
-### Step 2: First Run (Initial Solve)
-Build and start the container:
-```bash
-docker-compose up --build
-```
-1. Open your VNC client and connect to `localhost:5910` (Password: `wayvnc`).
-2. Solve the Cloudflare challenge manually.
-3. Once you see `✅ (cf_clearance present!)` in the terminal, you can stop the container (Ctrl+C).
-
-### Step 3: Regular Automated Run
-For subsequent runs, use the force-recreate command to ensure a clean session:
-```bash
-docker-compose up --force-recreate
-```
-Chrome will now use the saved cookies and bypass the challenge automatically.
+### Workflow
+1. **Initialize:** 
+   ```bash
+   docker-compose up --build
+   ```
+2. **First Solve:** Connect to `localhost:5910` (Pwd: `wayvnc`). Manually solve the Turnstile. Look for the message: `✅ (cf_clearance present!)`.
+3. **Automate:** From then on, just run:
+   ```bash
+   docker-compose up --force-recreate
+   ```
+   The browser will boot, inject your "Human" session, and skip the challenge.
 
 ---
 
-## ⚙️ Project Structure
-
-- `ghost_browser.py`: Core orchestration and cookie management.
-- `stealth_utils.py`: CDP identity syncing and hardware spoofing.
-- `humanizer.py`: Behavioral simulation logic.
-- `Dockerfile`: Multi-stage build for a specialized browser environment.
+## 📜 Repository Contents
+| File | Role |
+| :--- | :--- |
+| `ghost_browser.py` | Main entry point, CDP config, cookie loop. |
+| `stealth_utils.py` | Browser identity overrides (Time/Geo/Hardware). |
+| `humanizer.py` | Mouse/Keyboard behavioral synthesis. |
+| `visual_controller.py` | Computer Vision fail-safe for tricky UI elements. |
+| `Dockerfile` | Specialized Linux environment with Sway + Chrome. |
+| `pyproject.toml` | Dependency management (zendriver, numpy, scipy). |
