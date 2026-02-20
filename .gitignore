@@ -1,0 +1,16 @@
+# Sensitive files — NEVER commit these
+.env
+cookies.json
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.python-version
+
+# uv
+.uv/
+
+# OS
+.DS_Store

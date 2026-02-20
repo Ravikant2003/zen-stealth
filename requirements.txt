@@ -1,0 +1,8 @@
+zendriver
+stealth-browser-controller
+numpy
+scipy
+requests
+python-dotenv
+opencv-python-headless
+pyyaml

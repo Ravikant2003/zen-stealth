@@ -1,0 +1,35 @@
+services:
+  app:
+    platform: linux/amd64 # Matches the base image to avoid architecture mix-up
+    build:
+      context: .
+      args:
+        SWAY_UNSUPPORTED_GPU: "true"
+        ENABLE_XWAYLAND: "true"
+    ports:
+      - "5910:5910"
+      - "9222:9222"
+    volumes:
+      - swayvnc-wayvnc-certs:/certs
+      - .:/app
+      - /app/.venv
+      - zen_profile:/home/chrome-user/.zen
+    environment:
+      - RENDER_GROUP_GID=
+      - SWAY_RESOLUTION=1920x1080
+      - WAYVNC_PORT=5910
+      - WAYVNC_ENABLE_AUTH=true
+      - WAYVNC_USERNAME=wayvnc
+      - WAYVNC_PASSWORD=wayvnc
+      - MOZ_ENABLE_WAYLAND=1
+      - MOZ_DISABLE_CONTENT_SANDBOX=1
+      - XDG_RUNTIME_DIR=/tmp
+      - DISPLAY=:0
+      - SOCKS5_PROXY=${SOCKS5_PROXY}
+    security_opt:
+      - seccomp:unconfined
+    shm_size: '2gb'
+
+volumes:
+  swayvnc-wayvnc-certs:
+  zen_profile:
